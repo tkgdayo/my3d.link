@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    #myCanvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    #interactionIcon {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(255, 255, 255, 0.9);
+      width: 55px;
+      height: 55px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: none;
+      z-index: 1000;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      font-size: 40px;
+      font-weight: bold;
+      color: #333;
+      text-align: center;
+      line-height: 55px;
+      user-select: none;
+      animation: vibrate 0.3s linear infinite;
+    }
+
+    @keyframes vibrate {
+      0% {
+        transform: translateX(-50%) translate(0, 0) rotate(0deg);
+      }
+
+      25% {
+        transform: translateX(-50%) translate(1px, 1px) rotate(1deg);
+      }
+
+      50% {
+        transform: translateX(-50%) translate(-1px, -1px) rotate(-1deg);
+      }
+
+      75% {
+        transform: translateX(-50%) translate(-1px, 1px) rotate(1deg);
+      }
+
+      100% {
+        transform: translateX(-50%) translate(1px, -1px) rotate(-1deg);
+      }
+    }
+
+    #interactionIcon:hover {
+      background-color: rgba(255, 255, 255, 1);
+      transform: translateX(-50%) scale(1.1);
+      animation: none;
+      /* ホバー時はアニメーションを停止 */
+      transition: all 0.2s ease;
+    }
+
+    #popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+      z-index: 1001;
+      display: none;
+      max-width: 80%;
+      max-height: 80%;
+      overflow-y: auto;
+    }
+
+    #popupClose {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      cursor: pointer;
+      font-size: 24px;
+      color: #666;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: background-color 0.2s;
+    }
+
+    #popupClose:hover {
+      background-color: rgba(0, 0, 0, 0.1);
+    }
+
+    .popup-content {
+      margin-top: 20px;
+    }
+
+    #debugInfo {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      font-size: 14px;
+      z-index: 1000;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/controls/OrbitControls.js';
+
+    // サイズを指定
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    // レンダラーを作成
+    const renderer = new THREE.WebGLRenderer({
+      canvas: document.querySelector("#myCanvas"),
+      antialias: true
+    });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    // シーンを作成
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xffffff);
+
+    // カメラを作成
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    camera.position.set(0, 1.7, 0); // 目の高さに設定
+
+    // マウスの位置を管理（グローバル）
+    const mouse = {
+      x: 0,
+      y: 0,
+      isLocked: false
+    };
+
+    // カメラの回転を管理
+    const cameraRotation = {
+      yaw: 0,   // 水平回転
+      pitch: 0, // 垂直回転
+      sensitivity: 0.002, // マウス感度
+      maxPitch: Math.PI / 2 - 0.1 // 上下の回転制限（少し余裕を持たせる）
+    };
+
+    // マウスロックの設定
+    document.addEventListener('click', () => {
+      if (!mouse.isLocked) {
+        renderer.domElement.requestPointerLock();
+      }
+    });
+
+    // マウスロック状態の変更を監視
+    document.addEventListener('pointerlockchange', () => {
+      mouse.isLocked = document.pointerLockElement === renderer.domElement;
+    });
+
+    // マウス移動の監視
+    document.addEventListener('mousemove', (event) => {
+      if (mouse.isLocked) {
+        // マウスの移動量に基づいてカメラを回転
+        cameraRotation.yaw -= event.movementX * cameraRotation.sensitivity;
+        cameraRotation.pitch -= event.movementY * cameraRotation.sensitivity;
+
+        // 上下の回転を制限
+        cameraRotation.pitch = Math.max(
+          -cameraRotation.maxPitch,
+          Math.min(cameraRotation.maxPitch, cameraRotation.pitch)
+        );
+
+        // カメラの回転を更新
+        camera.rotation.set(
+          cameraRotation.pitch,
+          cameraRotation.yaw,
+          0,
+          'YXZ' // Y軸（上下）→ X軸（左右）の順で回転
+        );
+      }
+    });
+
+    // キーボードの状態を管理
+    const keys = {
+      w: false,
+      a: false,
+      s: false,
+      d: false,
+      shift: false,
+      space: false  // スペースキーの状態を追加
+    };
+
+    // 移動関連の設定
+    const moveConfig = {
+      walkSpeed: 4.0, // 秒速2メートル
+      runSpeed: 6,  // 秒速4メートル
+      acceleration: 10.0, // 加速度
+      deceleration: 15.0, // 減速度
+      currentVelocity: new THREE.Vector3(),
+      targetVelocity: new THREE.Vector3()
+    };
+
+    // キーボードイベントのリスナーを設定
+    window.addEventListener('keydown', (event) => {
+      switch (event.key.toLowerCase()) {
+        case 'w': keys.w = true; break;
+        case 'a': keys.a = true; break;
+        case 's': keys.s = true; break;
+        case 'd': keys.d = true; break;
+        case 'shift': keys.shift = true; break;
+        case ' ':  // スペースキー
+          if (!keys.space) {  // キーが押された瞬間のみ処理
+            keys.space = true;
+            if (popup.style.display === 'block') {
+              // ポップアップが表示されている場合は閉じる
+              popup.style.display = 'none';
+            } else if (currentInteractionPoint) {
+              // ポップアップが非表示で、インタラクションポイントが有効な場合は表示
+              const popupContent = popup.querySelector('.popup-content');
+              popupContent.innerHTML = `
+                <h2>${currentInteractionPoint.title}</h2>
+                <p>${currentInteractionPoint.content}</p>
+              `;
+              popup.style.display = 'block';
+            }
+          }
+          break;
+      }
+    });
+
+    window.addEventListener('keyup', (event) => {
+      switch (event.key.toLowerCase()) {
+        case 'w': keys.w = false; break;
+        case 'a': keys.a = false; break;
+        case 's': keys.s = false; break;
+        case 'd': keys.d = false; break;
+        case 'shift': keys.shift = false; break;
+        case ' ': keys.space = false; break;
+      }
+    });
+
+    // 光源を追加
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(5, 5, 5);
+    scene.add(directionalLight);
+
+    // GLTFモデルを読み込む
+    const loader = new GLTFLoader();
+    let collisionObjects = []; // 衝突判定用のオブジェクト配列
+    let pictureFrames = []; // 絵画フレームの配列
+    let currentFrameIndex = -1; // 現在選択中のフレーム
+
+    // 画像テクスチャの配列
+    const pictureTextures = [
+      'https://picsum.photos/512/512', // サンプル画像1
+      'https://picsum.photos/512/512', // サンプル画像2
+      'https://picsum.photos/512/512'  // サンプル画像3
+    ];
+
+    // 画像をロードする関数
+    function loadTexture(url) {
+      return new Promise((resolve, reject) => {
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load(
+          url,
+          (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            resolve(texture);
+          },
+          undefined,
+          reject
+        );
+      });
+    }
+
+    // グローバルなレイキャスター
+    const raycaster = new THREE.Raycaster();
+
+    // 絵画フレームを作成する関数
+    function createPictureFrame(position, rotation, size) {
+      // フレームのジオメトリを作成
+      const frameGeometry = new THREE.PlaneGeometry(size.width, size.height);
+
+      // フレームのマテリアルを作成（最初は白）
+      const frameMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 1
+      });
+
+      // フレームのメッシュを作成
+      const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+      frame.position.copy(position);
+      frame.rotation.copy(rotation);
+
+      // フレームを配列に追加
+      pictureFrames.push(frame);
+      scene.add(frame);
+
+      // デバッグ用：フレームの位置を表示
+      console.log('Created frame at:', position);
+    }
+
+    // クリックイベントのリスナー（グローバルに1つだけ設定）
+    window.addEventListener('click', (event) => {
+      // マウス位置を正規化
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      // レイキャスターを更新
+      raycaster.setFromCamera(new THREE.Vector2(mouse.x, mouse.y), camera);
+
+      // すべてのフレームとの交差をチェック
+      const intersects = raycaster.intersectObjects(pictureFrames);
+
+      if (intersects.length > 0) {
+        const clickedFrame = intersects[0].object;
+        const frameIndex = pictureFrames.indexOf(clickedFrame);
+
+        if (frameIndex !== -1) {
+          console.log('Frame clicked:', frameIndex);
+          currentFrameIndex = frameIndex;
+
+          // 次のテクスチャをロード
+          const nextTextureIndex = (currentFrameIndex + 1) % pictureTextures.length;
+          loadTexture(pictureTextures[nextTextureIndex]).then(texture => {
+            clickedFrame.material.map = texture;
+            clickedFrame.material.needsUpdate = true;
+            console.log('Texture updated for frame:', frameIndex);
+          }).catch(error => {
+            console.error('Error loading texture:', error);
+          });
+        }
+      }
+    });
+
+    loader.load(
+      'uploads_files_5155429_Art+Gallery+GLB.gltf',
+      (gltf) => {
+        const model = gltf.scene;
+        model.scale.set(1, 1, 1);
+        model.position.set(0, 0, 0);
+        scene.add(model);
+
+        // モデル内のメッシュを処理
+        model.traverse((child) => {
+          if (child.isMesh) {
+            // 衝突判定用の設定
+            child.geometry.computeBoundingBox();
+            child.geometry.computeVertexNormals();
+            collisionObjects.push(child);
+
+            // 絵画フレームの検出と作成
+            if (child.name.toLowerCase().includes('frame') || child.name.toLowerCase().includes('picture')) {
+              console.log('Found frame/picture mesh:', child.name);
+
+              // フレームの位置と回転を取得
+              const position = child.position.clone();
+              const rotation = child.rotation.clone();
+
+              // フレームのサイズを推定（必要に応じて調整）
+              const size = {
+                width: 1.0,  // フレームの幅
+                height: 1.0  // フレームの高さ
+              };
+
+              // 絵画フレームを作成
+              createPictureFrame(position, rotation, size);
+            }
+          }
+        });
+
+        console.log('Collision objects:', collisionObjects.length);
+        console.log('Picture frames:', pictureFrames.length);
+
+        // 初期テクスチャをロード
+        pictureFrames.forEach((frame, index) => {
+          loadTexture(pictureTextures[index % pictureTextures.length]).then(texture => {
+            frame.material.map = texture;
+            frame.material.needsUpdate = true;
+            console.log('Initial texture loaded for frame:', index);
+          }).catch(error => {
+            console.error('Error loading initial texture:', error);
+          });
+        });
+      },
+      (progress) => {
+        console.log('Loading progress:', (progress.loaded / progress.total * 100) + '%');
+      },
+      (error) => {
+        console.error('Error loading model:', error);
+      }
+    );
+
+    // デバッグ用のグリッドを追加
+    // const gridHelper = new THREE.GridHelper(20, 20);
+    // scene.add(gridHelper);
+
+    // 前回のフレーム時間を記録
+    let lastTime = performance.now();
+
+    // 衝突判定用のレイキャスター
+    const collisionRaycaster = new THREE.Raycaster();
+    const collisionDistance = 0.2; // 衝突判定の距離
+
+    // プレイヤーの移動を制限する関数
+    function checkCollision(newPosition) {
+      // 進行方向のベクトルを計算
+      const moveDirection = newPosition.clone().sub(camera.position).normalize();
+
+      // 前方、左、右の3方向でレイキャスト
+      const directions = [
+        moveDirection, // 前方
+        new THREE.Vector3().crossVectors(moveDirection, new THREE.Vector3(0, 1, 0)).normalize(), // 右
+        new THREE.Vector3().crossVectors(moveDirection, new THREE.Vector3(0, 1, 0)).normalize().negate() // 左
+      ];
+
+      // 各方向で衝突判定
+      for (const direction of directions) {
+        collisionRaycaster.set(camera.position, direction);
+        const intersects = collisionRaycaster.intersectObjects(collisionObjects, true);
+
+        if (intersects.length > 0 && intersects[0].distance < collisionDistance) {
+          // 衝突が検出された場合、移動を制限
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    // デバッグ情報の更新（必要に応じてコメントアウト）
+    function updateDebugInfo() {
+      pictureFrames.forEach((frame, index) => {
+        console.log(`Frame ${index}:`, {
+          position: frame.position,
+          rotation: frame.rotation,
+          visible: frame.visible
+        });
+      });
+    }
+
+    // インタラクションポイントの設定
+    const interactionPoints = [
+      {
+        position: new THREE.Vector3(-2.5, 1.7, 2),
+        title: "This is how I look like!",
+        content: "",
+        distance: 2.0
+      },
+      {
+        position: new THREE.Vector3(7.5, 1.7, 9),
+        title: "Do you like mushrooms? But don't eat them!",
+        content: "",
+        distance: 2.0
+      }
+    ];
+
+    // DOM要素の取得
+    const interactionIcon = document.getElementById('interactionIcon');
+    const popup = document.getElementById('popup');
+    const popupClose = document.getElementById('popupClose');
+    let currentInteractionPoint = null;
+
+    // ポップアップを閉じる（×ボタンは残しておく）
+    popupClose.addEventListener('click', () => {
+      popup.style.display = 'none';
+    });
+
+    // インタラクションポイントとの距離をチェック
+    function checkInteractionPoints() {
+      let nearestPoint = null;
+      let minDistance = Infinity;
+
+      for (const point of interactionPoints) {
+        const distance = camera.position.distanceTo(point.position);
+        if (distance < point.distance && distance < minDistance) {
+          minDistance = distance;
+          nearestPoint = point;
+        }
+      }
+
+      // アイコンの表示/非表示を制御
+      if (nearestPoint) {
+        interactionIcon.style.display = 'block';
+        interactionIcon.textContent = '!';  // 常に「!」を表示
+        currentInteractionPoint = nearestPoint;
+      } else {
+        interactionIcon.style.display = 'none';
+        // ポップアップが表示されている状態で、インタラクションポイントから離れた場合
+        if (currentInteractionPoint && popup.style.display === 'block') {
+          const distanceToCurrentPoint = camera.position.distanceTo(currentInteractionPoint.position);
+          if (distanceToCurrentPoint > currentInteractionPoint.distance) {
+            popup.style.display = 'none';
+          }
+        }
+        currentInteractionPoint = null;
+      }
+    }
+
+    // アニメーションループ
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const currentTime = performance.now();
+      const deltaTime = (currentTime - lastTime) / 1000;
+      lastTime = currentTime;
+
+      // デバッグ情報の更新
+      const debugInfo = document.getElementById('debugInfo');
+      debugInfo.innerHTML = `
+        Position: X: ${camera.position.x.toFixed(2)} Y: ${camera.position.y.toFixed(2)} Z: ${camera.position.z.toFixed(2)}<br>
+        Rotation: Yaw: ${(cameraRotation.yaw * (180 / Math.PI)).toFixed(2)}° Pitch: ${(cameraRotation.pitch * (180 / Math.PI)).toFixed(2)}°
+      `;
+
+      // カメラの向きを取得（回転行列から）
+      const cameraDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+
+      // 目標速度を計算
+      moveConfig.targetVelocity.set(0, 0, 0);
+      const currentSpeed = keys.shift ? moveConfig.runSpeed : moveConfig.walkSpeed;
+
+      if (keys.w) moveConfig.targetVelocity.add(cameraDirection);
+      if (keys.s) moveConfig.targetVelocity.sub(cameraDirection);
+      if (keys.a) moveConfig.targetVelocity.sub(cameraRight);
+      if (keys.d) moveConfig.targetVelocity.add(cameraRight);
+
+      // 目標速度を正規化して速度を適用
+      if (moveConfig.targetVelocity.length() > 0) {
+        moveConfig.targetVelocity.normalize().multiplyScalar(currentSpeed);
+      }
+
+      // 現在の速度を目標速度に向けて補間
+      const acceleration = moveConfig.targetVelocity.length() > 0 ?
+        moveConfig.acceleration : moveConfig.deceleration;
+
+      moveConfig.currentVelocity.lerp(
+        moveConfig.targetVelocity,
+        Math.min(1, acceleration * deltaTime)
+      );
+
+      // Y軸の移動を無効化
+      moveConfig.currentVelocity.y = 0;
+
+      // 新しい位置を計算
+      const newPosition = camera.position.clone().add(
+        moveConfig.currentVelocity.clone().multiplyScalar(deltaTime)
+      );
+
+      // 衝突判定を行い、衝突がない場合のみ移動を許可
+      if (checkCollision(newPosition)) {
+        camera.position.copy(newPosition);
+      }
+
+      // デバッグ情報の更新（必要に応じてコメントアウト）
+      // updateDebugInfo();
+
+      // インタラクションポイントのチェック
+      checkInteractionPoints();
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // ウィンドウリサイズ対応
+    window.addEventListener('resize', () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      // カメラのアスペクト比を更新
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+
+      // レンダラーのサイズを更新
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(window.devicePixelRatio);
+    });
+  </script>
+</head>
+
+<body>
+  <canvas id="myCanvas"></canvas>
+  <div id="interactionIcon">!</div>
+  <div id="popup">
+    <span id="popupClose">×</span>
+    <div class="popup-content"></div>
+  </div>
+  <div id="debugInfo"></div>
+</body>
+
+</html>
